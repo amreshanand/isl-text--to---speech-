@@ -3,19 +3,20 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
-venv311/
-venv313/
 .env
 
-# Next.js
+# Node / Next.js
+node_modules/
 .next/
 out/
 build/
-node_modules/
 
-# Dataset
-dataset/
+# AI Model artifacts
+*.h5
 *.npy
+saved_model/
+dataset/
 
 # OS
 .DS_Store
+Thumbs.db
