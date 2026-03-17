@@ -8,7 +8,12 @@ from sklearn.model_selection import train_test_split
 
 # Configuration
 # Gestures matching the dataset collection output
-gestures = ["HELLO", "WATER", "HELP", "YES", "NO"]
+gestures = [
+    "HELLO", "WATER", "HELP", "YES", "NO",
+    "I", "YOU", "EAT", "DRINK", "FOOD",
+    "PLEASE", "THANK_YOU", "WHERE", "HOSPITAL",
+    "NEED", "WANT", "GO", "COME", "MORE", "STOP"
+]
 dataset_path = os.path.join('..', 'dataset')
 model_save_path = 'model.h5'
 

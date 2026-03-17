@@ -2,10 +2,15 @@ import cv2
 import numpy as np
 import os
 import mediapipe as mp
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+from mediapipe.python.solutions import hands as _hands
+from mediapipe.python.solutions import drawing_utils as _drawing
 # Configuration
-gestures = ["HELLO", "WATER", "HELP", "YES", "NO"]
+gestures = [
+    "HELLO", "WATER", "HELP", "YES", "NO",
+    "I", "YOU", "EAT", "DRINK", "FOOD",
+    "PLEASE", "THANK_YOU", "WHERE", "HOSPITAL",
+    "NEED", "WANT", "GO", "COME", "MORE", "STOP"
+]
 num_sequences = 20
 sequence_length = 30
 dataset_path = os.path.join('..', 'dataset')
@@ -15,8 +20,10 @@ for gesture in gestures:
     os.makedirs(os.path.join(dataset_path, gesture), exist_ok=True)
 
 # Initialize MediaPipe Hands
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+mp_hands = _hands
+mp_drawing = _drawing
+# mp_hands = mp.solutions.hands
+# mp_drawing = mp.solutions.drawing_utils
 
 def extract_landmarks(results):
     """
@@ -98,7 +105,7 @@ def run_collection():
                     # Draw visual landmarks
                     if results.multi_hand_landmarks:
                         for hand_landmarks in results.multi_hand_landmarks:
-                            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                            mp_drawing.draw_landmarks(frame, hand_landmarks, _hands.HAND_CONNECTIONS)
                             
                     # Extract 63-value array
                     landmarks = extract_landmarks(results)
