@@ -14,7 +14,12 @@ DATA_ARRAYS_PATH = 'dataset/arrays'
 MODEL_SAVE_PATH = 'saved_model/isl_model.h5'
 
 # Gestures matching the backend mapping
-gestures = np.array(['HELLO', 'WATER', 'HELP', 'YES', 'NO'])
+gestures = np.array([
+    "HELLO", "WATER", "HELP", "YES", "NO",
+    "I", "YOU", "EAT", "DRINK", "FOOD",
+    "PLEASE", "THANK_YOU", "WHERE", "HOSPITAL",
+    "NEED", "WANT", "GO", "COME", "MORE", "STOP"
+])
 
 # Initialization of MediaPipe Hands
 mp_hands = mp.solutions.hands

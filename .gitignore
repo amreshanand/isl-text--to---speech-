@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+venv311/
+venv313/
+.env
+
+# Next.js
+.next/
+out/
+build/
+node_modules/
+
+# Dataset
+dataset/
+*.npy
+
+# OS
+.DS_Store
