@@ -2,15 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 
-/*
- * ISL Translator — Full Frontend
- * 
- * Uses the SIMPLEST proven detection method:
- * - Fingers: TIP.y < PIP.y means finger is up (standard MediaPipe approach)
- * - Thumb: TIP.x vs IP.x comparison (horizontal spread)
- * - Includes live debug panel to show real-time finger states
- */
-
+// MediaPipe CDN globals
 declare global {
   interface Window {
     Hands: any;
@@ -21,7 +13,6 @@ declare global {
   }
 }
 
-// Finger state type for debug display
 type FingerState = {
   thumb: boolean;
   index: boolean;
@@ -32,43 +23,95 @@ type FingerState = {
   raw: string;
 };
 
+// Gesture labels (shared with backend)
+const GESTURE_LABELS = [
+  "HELLO", "WATER", "HELP", "YES", "NO",
+  "I", "YOU", "EAT", "DRINK", "FOOD",
+  "PLEASE", "THANK_YOU", "WHERE", "HOSPITAL",
+  "NEED", "WANT", "GO", "COME", "MORE", "STOP",
+];
+
+// Translation dictionaries for all supported languages
+const TRANSLATIONS: Record<string, Record<string, string>> = {
+  "en-US": {
+    HELLO: "Hello", WATER: "Water", HELP: "Help", YES: "Yes", NO: "No",
+    I: "I", YOU: "You", EAT: "Eat", DRINK: "Drink", FOOD: "Food",
+    PLEASE: "Please", THANK_YOU: "Thank You", WHERE: "Where", HOSPITAL: "Hospital",
+    NEED: "Need", WANT: "Want", GO: "Go", COME: "Come", MORE: "More", STOP: "Stop",
+  },
+  "hi-IN": {
+    HELLO: "नमस्ते", WATER: "पानी", HELP: "मदद", YES: "हाँ", NO: "नहीं",
+    I: "मैं", YOU: "आप", EAT: "खाना", DRINK: "पीना", FOOD: "भोजन",
+    PLEASE: "कृपया", THANK_YOU: "शुक्रिया", WHERE: "कहाँ", HOSPITAL: "अस्पताल",
+    NEED: "ज़रुरत", WANT: "चाहना", GO: "जाना", COME: "आना", MORE: "और", STOP: "रुकिए",
+  },
+  "mr-IN": {
+    HELLO: "नमस्कार", WATER: "पाणी", HELP: "मदत", YES: "हो", NO: "नाही",
+    I: "मी", YOU: "तू", EAT: "जेवण", DRINK: "पिणे", FOOD: "अन्न",
+    PLEASE: "कृपया", THANK_YOU: "धन्यवाद", WHERE: "कुठे", HOSPITAL: "रुग्णालय",
+    NEED: "गरज", WANT: "पाहिजे", GO: "जाणे", COME: "येणे", MORE: "आणखी", STOP: "थांबा",
+  },
+  "ta-IN": {
+    HELLO: "வணக்கம்", WATER: "தண்ணீர்", HELP: "உதவி", YES: "ஆம்", NO: "இல்லை",
+    I: "நான்", YOU: "நீ", EAT: "சாப்பிடு", DRINK: "குடி", FOOD: "உணவு",
+    PLEASE: "தயவுசெய்து", THANK_YOU: "நன்றி", WHERE: "எங்கே", HOSPITAL: "மருத்துவமனை",
+    NEED: "தேவை", WANT: "வேண்டும்", GO: "போ", COME: "வா", MORE: "இன்னும்", STOP: "நில்",
+  },
+  "te-IN": {
+    HELLO: "నమస్కారం", WATER: "నీళ్ళు", HELP: "సహాయం", YES: "అవును", NO: "లేదు",
+    I: "నేను", YOU: "నువ్వు", EAT: "తిను", DRINK: "త్రాగు", FOOD: "ఆహారం",
+    PLEASE: "దయచేసి", THANK_YOU: "ధన్యవాదాలు", WHERE: "ఎక్కడ", HOSPITAL: "ఆసుపత్రి",
+    NEED: "అవసరం", WANT: "కావాలి", GO: "వెళ్ళు", COME: "రా", MORE: "మరింత", STOP: "ఆగు",
+  },
+  "kn-IN": {
+    HELLO: "ನಮಸ್ಕಾರ", WATER: "ನೀರು", HELP: "ಸಹಾಯ", YES: "ಹೌದು", NO: "ಇಲ್ಲ",
+    I: "ನಾನು", YOU: "ನೀವು", EAT: "ಊಟ", DRINK: "ಕುಡಿ", FOOD: "ಆಹಾರ",
+    PLEASE: "ದಯವಿಟ್ಟು", THANK_YOU: "ಧನ್ಯವಾದಗಳು", WHERE: "ಎಲ್ಲಿ", HOSPITAL: "ಆಸ್ಪತ್ರೆ",
+    NEED: "ಅಗತ್ಯ", WANT: "ಬೇಕು", GO: "ಹೋಗು", COME: "ಬಾ", MORE: "ಇನ್ನೂ", STOP: "ನಿಲ್ಲು",
+  },
+  "bn-IN": {
+    HELLO: "নমস্কার", WATER: "জল", HELP: "সাহায্য", YES: "হ্যাঁ", NO: "না",
+    I: "আমি", YOU: "আপনি", EAT: "খাওয়া", DRINK: "পান করা", FOOD: "খাবার",
+    PLEASE: "দয়া করে", THANK_YOU: "ধন্যবাদ", WHERE: "কোথায়", HOSPITAL: "হাসপাতাল",
+    NEED: "প্রয়োজন", WANT: "চাই", GO: "যাও", COME: "এসো", MORE: "আরো", STOP: "থামুন",
+  },
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cameraRef = useRef<any>(null);
+  const sequenceRef = useRef<number[][]>([]);
 
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [gesture, setGesture] = useState<string>("Waiting for gesture...");
-  const [targetLanguage, setTargetLanguage] = useState<string>("en-US");
-  const [translatedText, setTranslatedText] = useState<string>("");
+  const [gesture, setGesture] = useState("Waiting for gesture...");
+  const [targetLanguage, setTargetLanguage] = useState("en-US");
+  const [translatedText, setTranslatedText] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [scriptsLoaded, setScriptsLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Loading MediaPipe...");
   const [fingerDebug, setFingerDebug] = useState<FingerState>({
-    thumb: false, index: false, middle: false, ring: false, pinky: false, count: 0, raw: "-"
+    thumb: false, index: false, middle: false, ring: false, pinky: false, count: 0, raw: "-",
   });
 
-  const cameraRef = useRef<any>(null);
-  const sequenceRef = useRef<number[][]>([]);
-  const gestureBufferRef = useRef<string[]>([]);
-  const BUFFER_SIZE = 4; // frames before committing
-  const lastGestureTimeRef = useRef<number>(0);
-
-  // ─── Load MediaPipe CDN scripts ───────────────────────────────────
+  // ── Load MediaPipe CDN Scripts ──────────────────────────────────────
   useEffect(() => {
-    const scripts = [
+    const cdnScripts = [
       "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js",
       "https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js",
       "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js",
     ];
 
     let loaded = 0;
-    scripts.forEach((src) => {
+    cdnScripts.forEach((src) => {
       const script = document.createElement("script");
       script.src = src;
       script.crossOrigin = "anonymous";
       script.onload = () => {
         loaded++;
-        if (loaded === scripts.length) {
+        if (loaded === cdnScripts.length) {
           setScriptsLoaded(true);
           setStatusMessage("MediaPipe ready. Start camera to begin.");
         }
@@ -80,92 +123,34 @@ export default function Home() {
     });
   }, []);
 
-  // ─── MediaPipe results handler ────────────────────────────────────
-  // ─── Sequence Helper Functions ──────────────────────────────────
-  const extractHandLandmarks = (landmarks: any[]) => {
-    // Converts 21 landmarks into a flat array of 63 values (x, y, z)
-    return landmarks.flatMap((lm: any) => [lm.x, lm.y, lm.z]);
-  };
+  // ── Landmark Extraction ─────────────────────────────────────────────
+  const extractHandLandmarks = (landmarks: any[]) =>
+    landmarks.flatMap((lm: any) => [lm.x, lm.y, lm.z]);
 
+  // ── Send Sequence to Backend for Prediction ─────────────────────────
   const predictGesture = async (sequence: number[][]) => {
-    console.log("✅ Sequence completed (30 frames). Calling Model API...");
     try {
-      const response = await fetch("http://localhost:8000/predict", {
+      const response = await fetch(`${API_URL}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sequence }),
       });
       const data = await response.json();
       if (data.gesture) {
-        console.log(`🤖 Model Prediction: ${data.gesture} (Confidence: ${data.confidence})`);
         setGesture(data.gesture);
       }
     } catch (error) {
-      console.error("❌ Prediction API Error:", error);
+      console.error("Prediction API Error:", error);
     }
   };
 
-  const onResults = useCallback(
-    (results: any) => {
-      if (!canvasRef.current) return;
-      const canvasCtx = canvasRef.current.getContext("2d");
-      if (!canvasCtx) return;
-
-      const w = canvasRef.current.width;
-      const h = canvasRef.current.height;
-
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, w, h);
-
-      // MIRROR the canvas horizontally for natural selfie view
-      canvasCtx.translate(w, 0);
-      canvasCtx.scale(-1, 1);
-      canvasCtx.drawImage(results.image, 0, 0, w, h);
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        // Only process FIRST hand
-        const landmarks = results.multiHandLandmarks[0];
-        const handedness = results.multiHandedness?.[0]?.label || "Right";
-
-        if (window.drawConnectors && window.HAND_CONNECTIONS) {
-          window.drawConnectors(canvasCtx, landmarks, window.HAND_CONNECTIONS, {
-            color: "#00FF88",
-            lineWidth: 4,
-          });
-        }
-        if (window.drawLandmarks) {
-          window.drawLandmarks(canvasCtx, landmarks, {
-            color: "#FF4444",
-            lineWidth: 2,
-            radius: 4,
-          });
-        }
-
-        // ── Phase 4 Upgrade: Sequence Processing ──
-        const frameLandmarks = extractHandLandmarks(landmarks);
-        sequenceRef.current.push(frameLandmarks);
-
-        // Keep track of finger states for the UI debug panel
-        updateFingerDebug(landmarks, handedness);
-
-        if (sequenceRef.current.length === 30) {
-          predictGesture(sequenceRef.current);
-          sequenceRef.current = [];
-        }
-      }
-      canvasCtx.restore();
-    },
-    []
-  );
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // DEBUG HELPER — Separated from classification for the new pipeline
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Finger Debug Display ────────────────────────────────────────────
   const updateFingerDebug = (landmarks: any[], handedness: string) => {
     const tipIds = [4, 8, 12, 16, 20];
     const pipIds = [3, 6, 10, 14, 18];
     const fingers: boolean[] = [];
 
+    // Thumb uses horizontal comparison (x-axis), other fingers use vertical (y-axis)
     if (handedness === "Right") {
       fingers.push(landmarks[tipIds[0]].x < landmarks[pipIds[0]].x);
     } else {
@@ -179,17 +164,59 @@ export default function Home() {
     const fingerCount = fingers.filter(Boolean).length;
 
     setFingerDebug({
-      thumb: thumbUp,
-      index: indexUp,
-      middle: middleUp,
-      ring: ringUp,
-      pinky: pinkyUp,
+      thumb: thumbUp, index: indexUp, middle: middleUp, ring: ringUp, pinky: pinkyUp,
       count: fingerCount,
-      raw: `T:${thumbUp ? "↑" : "↓"} I:${indexUp ? "↑" : "↓"} M:${middleUp ? "↑" : "↓"} R:${ringUp ? "↑" : "↓"} P:${pinkyUp ? "↑" : "↓"}`
+      raw: `T:${thumbUp ? "↑" : "↓"} I:${indexUp ? "↑" : "↓"} M:${middleUp ? "↑" : "↓"} R:${ringUp ? "↑" : "↓"} P:${pinkyUp ? "↑" : "↓"}`,
     });
   };
 
-  // ─── Start / Stop camera ─────────────────────────────────────────
+  // ── MediaPipe Results Handler ───────────────────────────────────────
+  const onResults = useCallback((results: any) => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    const w = canvasRef.current.width;
+    const h = canvasRef.current.height;
+
+    ctx.save();
+    ctx.clearRect(0, 0, w, h);
+
+    // Mirror horizontally for natural selfie view
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(results.image, 0, 0, w, h);
+
+    if (results.multiHandLandmarks?.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
+      const handedness = results.multiHandedness?.[0]?.label || "Right";
+
+      // Draw hand skeleton
+      if (window.drawConnectors && window.HAND_CONNECTIONS) {
+        window.drawConnectors(ctx, landmarks, window.HAND_CONNECTIONS, {
+          color: "#00FF88", lineWidth: 4,
+        });
+      }
+      if (window.drawLandmarks) {
+        window.drawLandmarks(ctx, landmarks, {
+          color: "#FF4444", lineWidth: 2, radius: 4,
+        });
+      }
+
+      // Collect sequence frames and predict when 30 are ready
+      sequenceRef.current.push(extractHandLandmarks(landmarks));
+      updateFingerDebug(landmarks, handedness);
+
+      if (sequenceRef.current.length === 30) {
+        predictGesture(sequenceRef.current);
+        sequenceRef.current = [];
+      }
+    }
+
+    ctx.restore();
+  }, []);
+
+  // ── Camera Start / Stop ─────────────────────────────────────────────
   useEffect(() => {
     if (!isCameraActive || !scriptsLoaded || !videoRef.current) return;
 
@@ -229,70 +256,7 @@ export default function Home() {
     };
   }, [isCameraActive, scriptsLoaded, onResults]);
 
-  // ─── Translation dictionary ───────────────────────────────────────
-  const translations: Record<string, Record<string, string>> = {
-    "hi-IN": { 
-      HELLO: "नमस्ते", WATER: "पानी", HELP: "मदद", YES: "हाँ", NO: "नहीं",
-      I: "मैं", YOU: "आप", EAT: "खाना", DRINK: "पीना", FOOD: "भोजन",
-      PLEASE: "कृपया", THANK_YOU: "शुक्रिया", WHERE: "कहाँ", HOSPITAL: "अस्पताल",
-      NEED: "ज़रुरत", WANT: "चाहना", GO: "जाना", COME: "आना", MORE: "और", STOP: "रुकिए"
-    },
-    "mr-IN": { 
-      HELLO: "नमस्कार", WATER: "पाणी", HELP: "मदत", YES: "हो", NO: "नाही",
-      I: "मी", YOU: "तू", EAT: "जेवण", DRINK: "पिणे", FOOD: "अन्न",
-      PLEASE: "कृपया", THANK_YOU: "धन्यवाद", WHERE: "कुठे", HOSPITAL: "रुग्णालय",
-      NEED: "गरज", WANT: "पाहिजे", GO: "जाणे", COME: "येणे", MORE: "आणखी", STOP: "थांबा"
-    },
-    "ta-IN": { 
-      HELLO: "வணக்கம்", WATER: "தண்ணீர்", HELP: "உதவி", YES: "ஆம்", NO: "இல்லை",
-      I: "நான்", YOU: "நீ", EAT: "சாப்பிடு", DRINK: "குடி", FOOD: "உணவு",
-      PLEASE: "தயவுசெய்து", THANK_YOU: "நன்றி", WHERE: "எங்கே", HOSPITAL: "மருத்துவமனை",
-      NEED: "தேவை", WANT: "வேண்டும்", GO: "போ", COME: "வா", MORE: "இன்னும்", STOP: "நில்"
-    },
-    "te-IN": { 
-      HELLO: "నమస్కారం", WATER: "నీళ్ళు", HELP: "సహాయం", YES: "అవును", NO: "లేదు",
-      I: "నేను", YOU: "నువ్వు", EAT: "తిను", DRINK: "త్రాగు", FOOD: "ఆహారం",
-      PLEASE: "దయచేసి", THANK_YOU: "ధన్యవాదాలు", WHERE: "ఎక్కడ", HOSPITAL: "ఆసుపత్రి",
-      NEED: "అవసరం", WANT: "కావాలి", GO: "వెళ్ళు", COME: "రా", MORE: "మరింత", STOP: "ఆగు"
-    },
-    "kn-IN": { 
-      HELLO: "ನಮಸ್ಕಾರ", WATER: "ನೀರು", HELP: "ಸಹಾಯ", YES: "ಹೌದು", NO: "ಇಲ್ಲ",
-      I: "ನಾನು", YOU: "ನೀವು", EAT: "ಊಟ", DRINK: "ಕುಡಿ", FOOD: "ಆಹಾರ",
-      PLEASE: "ದಯವಿಟ್ಟು", THANK_YOU: "ಧನ್ಯವಾದಗಳು", WHERE: "ಎಲ್ಲಿ", HOSPITAL: "ಆಸ್ಪತ್ರೆ",
-      NEED: "ಅಗತ್ಯ", WANT: "ಬೇಕು", GO: "ಹೋಗು", COME: "ಬಾ", MORE: "ಇನ್ನೂ", STOP: "ನಿಲ್ಲು"
-    },
-    "bn-IN": { 
-      HELLO: "নমস্কার", WATER: "জল", HELP: "সাহায্য", YES: "হ্যাঁ", NO: "না",
-      I: "আমি", YOU: "আপনি", EAT: "খাওয়া", DRINK: "পান করা", FOOD: "খাবার",
-      PLEASE: "দয়া করে", THANK_YOU: "ধন্যবাদ", WHERE: "কোথায়", HOSPITAL: "হাসপাতাল",
-      NEED: "প্রয়োজন", WANT: "চাই", GO: "যাও", COME: "এসো", MORE: "আরো", STOP: "থামুন"
-    },
-    "en-US": { 
-      HELLO: "Hello", WATER: "Water", HELP: "Help", YES: "Yes", NO: "No",
-      I: "I", YOU: "You", EAT: "Eat", DRINK: "Drink", FOOD: "Food",
-      PLEASE: "Please", THANK_YOU: "Thank You", WHERE: "Where", HOSPITAL: "Hospital",
-      NEED: "Need", WANT: "Want", GO: "Go", COME: "Come", MORE: "More", STOP: "Stop"
-    },
-  };
-
-  const handleTranslateAndSpeak = useCallback(
-    (text: string, lang: string) => {
-      const dict = translations[lang] || translations["en-US"];
-      const translated = dict[text.toUpperCase()] || text;
-      setTranslatedText(translated);
-      speakText(translated, lang);
-    },
-    []
-  );
-
-  // Auto-trigger translation when gesture changes
-  useEffect(() => {
-    if (gesture && gesture !== "Waiting for gesture...") {
-      handleTranslateAndSpeak(gesture, targetLanguage);
-    }
-  }, [gesture, targetLanguage, handleTranslateAndSpeak]);
-
-  // ─── Text-to-Speech ───────────────────────────────────────────────
+  // ── Translation & Text-to-Speech ────────────────────────────────────
   const speakText = (text: string, lang: string) => {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -305,7 +269,21 @@ export default function Home() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // ─── UI ────────────────────────────────────────────────────────────
+  const handleTranslateAndSpeak = useCallback((text: string, lang: string) => {
+    const dict = TRANSLATIONS[lang] || TRANSLATIONS["en-US"];
+    const translated = dict[text.toUpperCase()] || text;
+    setTranslatedText(translated);
+    speakText(translated, lang);
+  }, []);
+
+  // Auto-trigger translation when gesture changes
+  useEffect(() => {
+    if (gesture && gesture !== "Waiting for gesture...") {
+      handleTranslateAndSpeak(gesture, targetLanguage);
+    }
+  }, [gesture, targetLanguage, handleTranslateAndSpeak]);
+
+  // ── UI ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-slate-900 text-white flex flex-col items-center p-4 sm:p-8 font-sans">
 
@@ -392,7 +370,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* ── LIVE FINGER DEBUG PANEL ── */}
+          {/* Live Finger Debug Panel */}
           {isCameraActive && (
             <div className="mt-4 bg-gray-900/80 rounded-xl p-3 border border-gray-700/50">
               <p className="text-xs text-gray-500 mb-2 uppercase tracking-widest font-medium text-center">
@@ -400,11 +378,11 @@ export default function Home() {
               </p>
               <div className="flex justify-center gap-3 mb-2">
                 {[
-                  { name: "👍", label: "Thumb", up: fingerDebug.thumb },
-                  { name: "☝️", label: "Index", up: fingerDebug.index },
-                  { name: "🖕", label: "Middle", up: fingerDebug.middle },
-                  { name: "💍", label: "Ring", up: fingerDebug.ring },
-                  { name: "🤙", label: "Pinky", up: fingerDebug.pinky },
+                  { emoji: "👍", label: "Thumb", up: fingerDebug.thumb },
+                  { emoji: "☝️", label: "Index", up: fingerDebug.index },
+                  { emoji: "🖕", label: "Middle", up: fingerDebug.middle },
+                  { emoji: "💍", label: "Ring", up: fingerDebug.ring },
+                  { emoji: "🤙", label: "Pinky", up: fingerDebug.pinky },
                 ].map((f) => (
                   <div
                     key={f.label}
@@ -414,7 +392,7 @@ export default function Home() {
                         : "bg-red-600/20 border border-red-500/30 text-red-400"
                     }`}
                   >
-                    <span className="text-lg">{f.name}</span>
+                    <span className="text-lg">{f.emoji}</span>
                     <span>{f.label}</span>
                     <span className="font-bold">{f.up ? "UP" : "DOWN"}</span>
                   </div>
@@ -438,7 +416,7 @@ export default function Home() {
           <div className="flex-1 flex flex-col justify-center gap-5">
             {/* Detected Gesture */}
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700/60 text-center relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-emerald-500"></div>
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-emerald-500" />
               <p className="text-xs text-gray-500 mb-2 uppercase tracking-widest font-medium">
                 Detected Gesture
               </p>
@@ -449,7 +427,7 @@ export default function Home() {
 
             {/* Translated Text */}
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700/60 text-center relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-cyan-500"></div>
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-cyan-500" />
               <p className="text-xs text-gray-500 mb-2 uppercase tracking-widest font-medium">
                 Translated Text &amp; Speech
               </p>
@@ -458,8 +436,8 @@ export default function Home() {
               </p>
               {isSpeaking && (
                 <span className="absolute top-4 right-4 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500" />
                 </span>
               )}
             </div>
@@ -470,42 +448,25 @@ export default function Home() {
                 ✋ Gesture Guide
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-                <div className="bg-gray-800/60 rounded-lg p-2 text-center">
-                  <span className="text-xl">🖐️</span>
-                  <p className="text-gray-300 font-medium">All 5 Up</p>
-                  <p className="text-green-400 text-xs">HELLO</p>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-2 text-center">
-                  <span className="text-xl">☝️</span>
-                  <p className="text-gray-300 font-medium">Index Only</p>
-                  <p className="text-green-400 text-xs">YES</p>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-2 text-center">
-                  <span className="text-xl">✌️</span>
-                  <p className="text-gray-300 font-medium">Index+Middle</p>
-                  <p className="text-green-400 text-xs">WATER</p>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-2 text-center">
-                  <span className="text-xl">✊</span>
-                  <p className="text-gray-300 font-medium">All Down</p>
-                  <p className="text-green-400 text-xs">NO</p>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-2 text-center">
-                  <span className="text-xl">🤟</span>
-                  <p className="text-gray-300 font-medium">Thumb+Idx+Pinky</p>
-                  <p className="text-green-400 text-xs">HELP</p>
-                </div>
+                {[
+                  { emoji: "🖐️", desc: "All 5 Up", gesture: "HELLO" },
+                  { emoji: "☝️", desc: "Index Only", gesture: "YES" },
+                  { emoji: "✌️", desc: "Index+Middle", gesture: "WATER" },
+                  { emoji: "✊", desc: "All Down", gesture: "NO" },
+                  { emoji: "🤟", desc: "Thumb+Idx+Pinky", gesture: "HELP" },
+                ].map((g) => (
+                  <div key={g.gesture} className="bg-gray-800/60 rounded-lg p-2 text-center">
+                    <span className="text-xl">{g.emoji}</span>
+                    <p className="text-gray-300 font-medium">{g.desc}</p>
+                    <p className="text-green-400 text-xs">{g.gesture}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* Test Buttons */}
             <div className="flex flex-wrap justify-center gap-2 max-h-48 overflow-y-auto p-2 bg-gray-900/30 rounded-lg">
-              {[
-                "HELLO", "WATER", "HELP", "YES", "NO",
-                "I", "YOU", "EAT", "DRINK", "FOOD",
-                "PLEASE", "THANK_YOU", "WHERE", "HOSPITAL",
-                "NEED", "WANT", "GO", "COME", "MORE", "STOP"
-              ].map((g) => (
+              {GESTURE_LABELS.map((g) => (
                 <button
                   key={g}
                   onClick={() => { setGesture(g); handleTranslateAndSpeak(g, targetLanguage); }}
